@@ -18,18 +18,10 @@
 #include "palabos3D.h"
 #include "palabos3D.hh"
 
-//#include "plb_ib.h"
-
-#ifndef PLB_IB_H
-#define PLB_IB_H
-
 #include "ibCompositeDynamics3D.h"
 #include "ibDataWritingFunctionals3D.h"
 #include "ibProcessors3D.h"
 #include "physunits.h"
-
-#endif // PLB_IB_H
-
 
 #include <vector>
 #include <cmath>
@@ -122,7 +114,6 @@ int main(int argc, char* argv[]) {
     global::directories().setOutputDir(lbOutDir);
 
 
-    const T g = 9.81;
     const T nu_f = mu_f/rho_f;
     const T lx = 0.1, ly = 0.1, lz = 0.16;
 
@@ -229,10 +220,12 @@ int main(int argc, char* argv[]) {
     asx.createProperties();
     asx.setParticleShapeType("sphere");
 
-    AspherixCoSimSocket sock_ = asx.sock_;
 
     // Loop over main time iteration.
     for (plint iT=0; iT<maxSteps; ++iT) {
+
+        ParticleData<T>::ParticleDataArrayVector x_lb, v_lb;
+        ParticleData<T>::ParticleDataScalarVector r_lb;
 
         asx.beginExchange();
 
@@ -249,15 +242,18 @@ int main(int argc, char* argv[]) {
         double x[3] = {0.,0.,0.}, v[3] = {0.,0.,0.}, omega[3] = {0.,0.,0.};
 
         int nP_(0);
-        asx.exchangeData(nP_);
+        asx.receiveData(nP_);
 
         while(asx.getNextParticleData(r,x,v))
         {
             r = units.getLbLength(r);
+            r_lb.push_back(r);
             for(int i=0;i<3;i++)
             {
                 x[i] = units.getLbPosition(x[i]);
+                x_lb.push_back(Array<T,3>(x[0],x[1],x[2]));
                 v[i] = units.getLbVel(v[i]);
+                v_lb.push_back(Array<T,3>(v[0],v[1],v[2]));
             }
 
             pcout << "received "
@@ -279,9 +275,9 @@ int main(int argc, char* argv[]) {
             bool boxes_intersect = intersect(sss_box,localBB,sss_box_intersect);
 
             if(boxes_intersect)
-            applyProcessingFunctional(sss,sss_box_intersect,lattice);
+                applyProcessingFunctional(sss,sss_box_intersect,lattice);
             else
-            delete sss;
+                delete sss;
         }
 
         // this one returns modif::staticVariables and forces an update of those along processor
@@ -290,142 +286,55 @@ int main(int argc, char* argv[]) {
 
         //============================
 
-      if( iT%vtkSteps == 0){
-        writeVTK(lattice,parameters,units,iT);
-        // writeGif(lattice,iT);
-      }
+        if( iT%vtkSteps == 0){
+            writeVTK(lattice,parameters,units,iT);
+            // writeGif(lattice,iT);
+        }
 
-      lattice.collideAndStream();
+        lattice.collideAndStream();
 
-        size_t send_dataSize = nP_*sock_.get_sndBytesPerParticle();
-        char *send_data = new char[send_dataSize];
+        plint const n_force = nP_*3;
+        std::vector<T> force(n_force),torque(n_force);
 
-        //getForcesFromLattice(lattice,wrapper,sock_,units);  //we want to have a verion of this w/o wrapper
-        static std::vector<T> force,torque;
+        if(nP_ > 0)
         {
-            static typename ParticleData<T>::ParticleDataArrayVector x_lb;
+            SumForceTorque3D<T,DESCRIPTOR> *sft = new SumForceTorque3D<T,DESCRIPTOR>(x_lb,
+                                                                                     &force.front(),&torque.front()
+                );
 
-            plint const nPart = nP_;//wrapper.lmp->atom->nlocal + wrapper.lmp->atom->nghost;
-            plint const n_force = nPart*3;
-
-
-            if(nPart > 0)
-            {
-                //===
-                // TODO - can we move this to where pos is available?
-                if(nPart > x_lb.size()){
-                  for(plint iPart=0;iPart<x_lb.size();iPart++){
-                    x_lb[iPart][0] = units.getLbPosition(0.05);
-                    x_lb[iPart][1] = units.getLbPosition(0.05);
-                    x_lb[iPart][2] = units.getLbPosition(0.08);
-                  }
-                  for(plint iPart = x_lb.size();iPart < nPart; iPart++)
-                    x_lb.push_back( Array<T,3>( units.getLbPosition(0.05),
-                                                units.getLbPosition(0.05),
-                                                units.getLbPosition(0.08) ) );
-                } else{
-                  for(plint iPart=0;iPart<nPart;iPart++){
-                    x_lb[iPart][0] = units.getLbPosition(0.05);
-                    x_lb[iPart][1] = units.getLbPosition(0.05);
-                    x_lb[iPart][2] = units.getLbPosition(0.08);
-                  }
-                }
-                //===
-
-                if(n_force > force.size()){
-                  for(plint i=0;i<force.size();i++){
-                    force[i] = 0;
-                    torque[i] = 0;
-                  }
-                  for(plint i=force.size();i<n_force;i++){
-                    force.push_back(0.);
-                    torque.push_back(0.);
-                  }
-                } else {
-                  for(plint i=0;i<n_force;i++){
-                    force[i] = 0;
-                    torque[i] = 0;
-                  }
-                }
-                SumForceTorque3D<T,DESCRIPTOR> *sft = new SumForceTorque3D<T,DESCRIPTOR>(x_lb,
-                                                                                         &force.front(),&torque.front()
-                                                                                         );
-
-                // this relies on the fact that there is exactly one block on each processor
-                plint iBlock = lattice.getLocalInfo().getBlocks()[0];
-                std::map<plint,Box3D> blockmap = lattice.getSparseBlockStructure().getBulks();
-                Box3D localBB = blockmap[iBlock];
-                applyProcessingFunctional(sft,localBB, lattice);
-            }
-
+            // this relies on the fact that there is exactly one block on each processor
+            plint iBlock = lattice.getLocalInfo().getBlocks()[0];
+            std::map<plint,Box3D> blockmap = lattice.getSparseBlockStructure().getBulks();
+            Box3D localBB = blockmap[iBlock];
+            applyProcessingFunctional(sft,localBB, lattice);
         }
 
         //=========
         // gather local data send_data
         //gatherData(send_data,nP_); // TODO HERE
-        int h=sock_.get_sndBytesPerParticle();
-        int h2=sock_.get_pullNameList().size();
         for(int i=0;i<nP_;i++)
         {
-            for (int j = 0; j < h2; j++)
-            {
-                char *ptr = nullptr;
+            double f[3] = {
+                units.getPhysForce(force[3*i+0]),
+                units.getPhysForce(force[3*i+1]),
+                units.getPhysForce(force[3*i+2])
+            };
 
-                int index_from = i*h + sock_.get_pullCumOffsetPerProperty()[j];
-                int len = sock_.get_pullBytesPerPropList()[j];
-
-                if(sock_.get_pullTypeList()[j]=="scalar-atom")
-                {
-                    double* v=new double[1];
-                    int fieldID(-1);
-                    if(sock_.get_pullNameList()[j]=="Ksl")
-                    {
-                        pcout<<"ERROR: NOT IMPLEMENTED" << endl;
-                    }
-                    else pcout<<"ERROR: unknown fieldID!!! pullNameList[j]=\n" << sock_.get_pullNameList()[j] << " of type" << sock_.get_pullTypeList()[j] << endl;
-
-                    ptr = (char*)v;
-                    memcpy(&send_data[index_from], ptr, len);
-                    delete [] v;
-                }
-                else if(sock_.get_pullTypeList()[j]=="vector-atom")
-                {
-                    double* v=new double[3];
-                    int fieldID(-1);
-                    if(sock_.get_pullNameList()[j]=="dragforce")
-                    {
-                        for(int k=0;k<3;k++) v[k]=units.getPhysForce(force[3*i+k]); // TODO: we do not yet receive a force here!?
-                        pcout << "sending " << sock_.get_pullNameList()[j] << " = " << v[0] << "," << v[1] << "," << v[2] << "." << endl;
-                    }
-                    else if(sock_.get_pullNameList()[j]=="uf")
-                    {
-                        pcout<<"ERROR: NOT IMPLEMENTED" << endl;
-                    }
-                    else pcout<<"ERROR: unknown fieldID!!! pullNameList[j]=\n" << sock_.get_pullNameList()[j] << " of type" << sock_.get_pullTypeList()[j] << endl;
-
-                    ptr = (char*)v;
-                    memcpy(&send_data[index_from], ptr, len);
-                    delete [] v;
-                }
-            }
+            asx.addNextSendParticle(f);
         }
         //=========
 
-        // send snd_data to DEM from CFD
-        sock_.sendData(send_dataSize,send_data);
-        pcout << "sock_.sendData(send_dataSize,send_data) done." << std::endl;
+        asx.sendData();
 
-        delete[] send_data;
+        if(iT%logSteps == 0){
+            clock_t end = clock();
+            T time = ((T)difftime(end,start))/((T)CLOCKS_PER_SEC);
+            T mlups = ((T) (lattice.getNx()*lattice.getNy()*lattice.getNz()*((T)logSteps)))/time/1e6;
+            pcout << "time: " << time << " " ;
+            pcout << "calculating at " << mlups << " MLU/s" << std::endl;
+            start = clock();
 
-      if(iT%logSteps == 0){
-        clock_t end = clock();
-        T time = ((T)difftime(end,start))/((T)CLOCKS_PER_SEC);
-        T mlups = ((T) (lattice.getNx()*lattice.getNy()*lattice.getNz()*((T)logSteps)))/time/1e6;
-        pcout << "time: " << time << " " ;
-        pcout << "calculating at " << mlups << " MLU/s" << std::endl;
-        start = clock();
-
-      }
+        }
 
 
     }

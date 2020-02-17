@@ -15,7 +15,14 @@ public:
         : sock_(false,nRank),
           demTS(0.),
           nCGs(0),
-          cg(nullptr)
+          cg(nullptr),
+          send_dataSize(0),
+          rcv_dataSize(0),
+          send_data(nullptr),
+          rcv_data(nullptr),
+          nPart(0),
+          iPart_send(0),
+          iPart_rcv(0)
     {}
 
     void initComm()
@@ -71,7 +78,7 @@ public:
         sock_.exchangeDomain(useBB,limits);
     }
 
-    void exchangeData(int &nP)
+    void receiveData(int &nP)
     {
         rcv_dataSize = 0;
         rcv_data = nullptr;
@@ -80,12 +87,12 @@ public:
 
         nPart = rcv_dataSize/sock_.get_rcvBytesPerParticle();
         nP = nPart;
-        iPart = 0;
-
+        iPart_rcv = 0;
     }
+
     bool getNextParticleData(double &r, double x[3], double v[3])
     {
-        if(iPart >= nPart)
+        if(iPart_rcv >= nPart)
             return false;
 
         int h=sock_.get_rcvBytesPerParticle();
@@ -93,7 +100,7 @@ public:
         // loop all properties
         for (int j = 0; j < h2; j++)
         {
-            int const index_from = iPart*h + sock_.get_pushCumOffsetPerProperty()[j];
+            int const index_from = iPart_rcv*h + sock_.get_pushCumOffsetPerProperty()[j];
             int const len = sock_.get_pushBytesPerPropList()[j];
 
             // cut out part of string
@@ -105,7 +112,6 @@ public:
             {
                 double* b=(double*)(str);
 
-                int fieldID(-1);
                 if(sock_.get_pushNameList()[j]=="radius")
                 {
                     r = b[0];
@@ -115,7 +121,6 @@ public:
             {
                 double* b=(double*)(str);
 
-                int fieldID(-1);
                 if(sock_.get_pushNameList()[j]=="v")
                 {
                     for(int k=0;k<3;k++)
@@ -134,8 +139,42 @@ public:
             delete [] str;
 
         }
-        iPart++;
+        iPart_rcv++;
         return true;
+    }
+
+    void addNextSendParticle(double *f)
+    {
+        if(iPart_send == 0)
+        {
+            send_dataSize = nPart*sock_.get_sndBytesPerParticle();
+            send_data = new char[send_dataSize];
+        }
+
+        // we assume for the moment that only the drag force is being transfered
+        // can be easily extended to account for torque as well
+        int const h = sock_.get_sndBytesPerParticle();
+        int const h2 = sock_.get_pullNameList().size();
+
+        for(int j=0;j<h2;j++)
+        {
+            int const index_from = iPart_send*h + sock_.get_pullCumOffsetPerProperty()[j];
+            int const len = sock_.get_pullBytesPerPropList()[j];
+            if(sock_.get_pullTypeList()[j]=="vector-atom" && sock_.get_pullNameList()[j]=="dragforce")
+            {
+                memcpy(&send_data[index_from],(char*)f,len);
+            }
+        }
+
+        iPart_send++;
+    }
+
+    void sendData()
+    {
+        sock_.sendData(send_dataSize,send_data);
+        delete[] send_data;
+        send_data = nullptr;
+        iPart_send = 0;
     }
 
     double getDEMts() const { return demTS; }
@@ -150,10 +189,10 @@ private:
     int  *cg;
 
     // init rcv_data pointer
-    size_t rcv_dataSize;
-    char *rcv_data;
+    size_t send_dataSize, rcv_dataSize;
+    char *send_data, *rcv_data;
 
-    int nPart, iPart;
+    int nPart, iPart_send, iPart_rcv;
     std::string propTypeToStr(PropertyType const type) const
     {
         switch(type)
@@ -163,6 +202,7 @@ private:
         case PropertyType::VECTOR_ATOM:
             return "vector-atom";
         }
+        return "";
     }
 };
 
