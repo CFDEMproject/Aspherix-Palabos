@@ -71,7 +71,72 @@ public:
         sock_.exchangeDomain(useBB,limits);
     }
 
-    void exchangeData()
+    void exchangeData(int &nP)
+    {
+        rcv_dataSize = 0;
+        rcv_data = nullptr;
+
+        sock_.rcvData(rcv_dataSize,rcv_data);
+
+        nPart = rcv_dataSize/sock_.get_rcvBytesPerParticle();
+        nP = nPart;
+        iPart = 0;
+
+    }
+    bool getNextParticleData(double &r, double x[3], double v[3])
+    {
+        if(iPart >= nPart)
+            return false;
+
+        int h=sock_.get_rcvBytesPerParticle();
+        int h2=sock_.get_pushBytesPerPropList().size();
+        // loop all properties
+        for (int j = 0; j < h2; j++)
+        {
+            int const index_from = iPart*h + sock_.get_pushCumOffsetPerProperty()[j];
+            int const len = sock_.get_pushBytesPerPropList()[j];
+
+            // cut out part of string
+            char* str = new char[len+1];
+            memmove(str, rcv_data + index_from, len);
+            str[len] = '\0';
+
+            if(sock_.get_pushTypeList()[j]=="scalar-atom")
+            {
+                double* b=(double*)(str);
+
+                int fieldID(-1);
+                if(sock_.get_pushNameList()[j]=="radius")
+                {
+                    r = b[0];
+                }
+            }
+            else if(sock_.get_pushTypeList()[j]=="vector-atom")
+            {
+                double* b=(double*)(str);
+
+                int fieldID(-1);
+                if(sock_.get_pushNameList()[j]=="v")
+                {
+                    for(int k=0;k<3;k++)
+                    {
+                        v[k] = b[k];
+                    }
+                }
+                else if(sock_.get_pushNameList()[j]=="x")
+                {
+                    for(int k=0;k<3;k++)
+                    {
+                        x[k] = b[k];
+                    }
+                }
+            }
+            delete [] str;
+
+        }
+        iPart++;
+        return true;
+    }
 
     double getDEMts() const { return demTS; }
     int getNumCG() const { return nCGs; }
@@ -84,6 +149,11 @@ private:
     int nCGs;
     int  *cg;
 
+    // init rcv_data pointer
+    size_t rcv_dataSize;
+    char *rcv_data;
+
+    int nPart, iPart;
     std::string propTypeToStr(PropertyType const type) const
     {
         switch(type)

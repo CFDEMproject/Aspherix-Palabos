@@ -240,86 +240,33 @@ int main(int argc, char* argv[]) {
         double limits[6] = {-100,100,-100,100,-100,100};
         asx.exchangeDomain(limits);
 
-        // init rcv_data pointer
-        size_t rcv_dataSize(0);
-        char *rcv_data=nullptr;
-
-        // receive rcv_data from DEM to CFD
-        pcout << "receive data..." << std::endl;
-        sock_.rcvData(rcv_dataSize,rcv_data);
-        pcout << "receive data done." << std::endl;
-
-        // set nr of particles
-        int nP_ = rcv_dataSize/sock_.get_rcvBytesPerParticle();
-
         // this relies on the fact that there is exactly one block on each lattice
         plint iBlock = lattice.getLocalInfo().getBlocks()[0];
         std::map<plint,Box3D> blockmap = lattice.getSparseBlockStructure().getBulks();
         Box3D localBB = blockmap[iBlock];
 
-        // loop all particles
-        int index_from(0);
-        int len(0);
-        int h=sock_.get_rcvBytesPerParticle();
-        int h2=sock_.get_pushBytesPerPropList().size();
-        for(int i=0;i<nP_;i++)
+        double r=0;
+        double x[3] = {0.,0.,0.}, v[3] = {0.,0.,0.}, omega[3] = {0.,0.,0.};
+
+        int nP_(0);
+        asx.exchangeData(nP_);
+
+        while(asx.getNextParticleData(r,x,v))
         {
-            T r=0;
-            T x[3]={0.,0.,0.} ,v[3]={0.,0.,0.}, omega[3]={0.,0.,0.};
-
-            plint id(0);
-
-            // loop all properties
-            for (int j = 0; j < h2; j++)
+            r = units.getLbLength(r);
+            for(int i=0;i<3;i++)
             {
-                index_from = i*h + sock_.get_pushCumOffsetPerProperty()[j];
-                len = sock_.get_pushBytesPerPropList()[j];
-
-                // cut out part of string
-                char* str = new char[len+1];
-                memmove(str, rcv_data + index_from, len);
-                str[len] = '\0';
-
-                if(sock_.get_pushTypeList()[j]=="scalar-atom")
-                {
-                    double* b=(double*)(str);
-                    pcout << "receiving " << sock_.get_pushNameList()[j] << " = " << b[0] << endl;
-
-                    int fieldID(-1);
-                    if(sock_.get_pushNameList()[j]=="radius")
-                    {
-                        r = units.getLbLength(b[0]);
-                    }
-                    else pcout<<"ERROR: unknown fieldID!!! pushNameList[j]=\n" << sock_.get_pushNameList()[j] << " of type" << sock_.get_pushTypeList()[j] << endl;
-                }
-                else if(sock_.get_pushTypeList()[j]=="vector-atom")
-                {
-                    double* b=(double*)(str);
-                    pcout << "receiving " << sock_.get_pushNameList()[j] << " = " << b[0] << "," << b[1] << "," << b[2] << "." << endl;
-
-                    int fieldID(-1);
-                    if(sock_.get_pushNameList()[j]=="v")
-                    {
-                        for(int k=0;k<3;k++)
-                        {
-                            v[k] = units.getLbVel(b[k]);
-                        }
-                    }
-                    else if(sock_.get_pushNameList()[j]=="x")
-                    {
-                        for(int k=0;k<3;k++)
-                        {
-                            x[k] = units.getLbPosition(b[k]);
-                        }
-                    }
-                    else pcout<<"unknown fieldID!!! pushNameList[j]=\n" << sock_.get_pushNameList()[j] << " of type" << sock_.get_pushTypeList()[j] << endl;
-                }
-                delete [] str;
+                x[i] = units.getLbPosition(x[i]);
+                v[i] = units.getLbVel(v[i]);
             }
 
+            pcout << "received "
+                  << "r " << r << " | "
+                  << "x " << x[0] << " " << x[1] << " " << x[2] << " | "
+                  << "v " << v[0] << " " << v[1] << " " << v[2] << " | "
+                  << std::endl;
             // set other properties (currently not communicated)
-            id = 1;  // TODO - we would need particle ID to have more than 1 particle in sim
-            for(plint i=0;i<3;i++)  omega[i] = units.getLbFreq(0.);
+            plint const id = 1;  // TODO - we would need particle ID to have more than 1 particle in sim
 
             SetSingleSphere3D<T,DESCRIPTOR> *sss = 0;
             sss = new SetSingleSphere3D<T,DESCRIPTOR>(x,v,omega,x,r,id,false);
@@ -416,8 +363,8 @@ int main(int argc, char* argv[]) {
         //=========
         // gather local data send_data
         //gatherData(send_data,nP_); // TODO HERE
-        h=sock_.get_sndBytesPerParticle();
-        h2=sock_.get_pullNameList().size();
+        int h=sock_.get_sndBytesPerParticle();
+        int h2=sock_.get_pullNameList().size();
         for(int i=0;i<nP_;i++)
         {
             for (int j = 0; j < h2; j++)
