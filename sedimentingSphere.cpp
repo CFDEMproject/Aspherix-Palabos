@@ -38,7 +38,7 @@
 #include <sstream>
 #include <ctime>
 
-#include "aspherix_cosim_socket.h"
+#include "aspherixSocketWrapper.h"
 
 using namespace plb;
 using namespace std;
@@ -206,27 +206,13 @@ int main(int argc, char* argv[]) {
 
     clock_t start = clock();
 
-    AspherixCoSimSocket sock_(false,global::mpi().getRank());
+    AspherixSocketWrapper asx(global::mpi().getRank());
+    asx.initComm();
 
-    pcout << "receiving DEMts ..." << std::endl;
-    double DEMts;
-    sock_.read_socket(&DEMts, sizeof(double));
-    pcout << "receiving DEMts done." << std::endl;
+    double DEMts = asx.getDEMts();
+    int nCGs = asx.getNumCG();
+    int cg = asx.getCG()[0];
 
-    pcout << "sending couple_nevery ..." << std::endl;
-    int couple_nevery(1);
-    sock_.write_socket(&couple_nevery, sizeof(int));
-    pcout << "sending couple_nevery done." << std::endl;
-
-    pcout << "receiving nr nCGs ..." << std::endl;
-    int nCGs;
-    sock_.read_socket(&nCGs, sizeof(int));
-    pcout << "receiving nr nCGs done. nCGs=" << nCGs << std::endl;
-
-    pcout << "receiving cg ..." << std::endl;
-    int cg;
-    sock_.read_socket(&cg, sizeof(int));
-    pcout << "receiving cg done. cg=" << cg << std::endl;
 
     // ==================
     // initialize
@@ -234,68 +220,25 @@ int main(int argc, char* argv[]) {
     //setPushPullProperties();
 
     // define push (from DEM to CFD) properties
-    sock_.pushBack_pushNameList(std::string("radius"));
-    sock_.pushBack_pushTypeList(std::string("scalar-atom"));
-    sock_.pushBack_pushNameList(std::string("x"));
-    sock_.pushBack_pushTypeList(std::string("vector-atom"));
-    sock_.pushBack_pushNameList(std::string("v"));
-    sock_.pushBack_pushTypeList(std::string("vector-atom"));
+    asx.addPushProperty("radius",AspherixSocketWrapper::PropertyType::SCALAR_ATOM);
+    asx.addPushProperty("x",AspherixSocketWrapper::PropertyType::VECTOR_ATOM);
+    asx.addPushProperty("v",AspherixSocketWrapper::PropertyType::VECTOR_ATOM);
 
-    // define pull (from CFD to DEM) properties
-    //sock_.pushBack_pullNameList(std::string("Ksl"));
-    //sock_.pushBack_pullTypeList(std::string("scalar-atom"));
-    //sock_.pushBack_pullNameList(std::string("uf"));
-    //sock_.pushBack_pullTypeList(std::string("vector-atom"));
-    sock_.pushBack_pullNameList(std::string("dragforce"));
-    sock_.pushBack_pullTypeList(std::string("vector-atom"));
+    asx.addPullProperty("dragforce",AspherixSocketWrapper::PropertyType::VECTOR_ATOM);
 
-    // build byte pattern of the push (from DEM to CFD) & pull (from CFD to DEM) properties
-    sock_.buildBytePattern();
+    asx.createProperties();
+    asx.setParticleShapeType("sphere");
 
-    // send push (from DEM to CFD) & pull (from CFD to DEM) property names and types
-    pcout << "send push/pull ..." << std::endl;
-    sock_.sendPushPullProperties();
-    pcout << "send push/pull done." << std::endl;
-
-    // send particleShapeType to DEM
-    string shapeTypeName("sphere");
-    size_t send_dataSize = shapeTypeName.size()+1;
-    char *send_data = new char[send_dataSize];
-    strcpy(send_data,const_cast<char*>(shapeTypeName.c_str()));
-    sock_.sendData(send_dataSize,send_data);
-    // ==================
-
+    AspherixCoSimSocket sock_ = asx.sock_;
 
     // Loop over main time iteration.
     for (plint iT=0; iT<maxSteps; ++iT) {
-    //for (plint iT=0; iT<10; ++iT) {
 
-        //===
-        // exchange status
-        // TODO here is the point where we can tell DEM to stop by sending SocketCodes::request_quit
-        pcout << "send SocketCodes..." << std::endl;
-        sock_.exchangeStatus(::SocketCodes::start_exchange,::SocketCodes::start_exchange);
-        pcout << "send SocketCodes done." << std::endl;
-
-        // send flag to proceed
-        pcout << "sending info on command models ..." << std::endl;
-        ::SocketCodes hh=::SocketCodes::start_exchange;
-        sock_.write_socket(&hh, sizeof(SocketCodes));
-        pcout << "sending info on command models done." << std::endl;
+        asx.beginExchange();
 
         // handle BB
-        pcout << "send BB..." << std::endl;
-        bool useBB(true);
-        double limits[6];
-        //setBounds(limits,useBB);
-        limits[0]=-100;
-        limits[1]=100;
-        limits[2]=-100;
-        limits[3]=100;
-        limits[4]=-100;
-        limits[5]=100;
-        sock_.exchangeDomain(useBB,limits);
-        pcout << "send BB done." << std::endl;
+        double limits[6] = {-100,100,-100,100,-100,100};
+        asx.exchangeDomain(limits);
 
         // init rcv_data pointer
         size_t rcv_dataSize(0);
@@ -309,10 +252,6 @@ int main(int argc, char* argv[]) {
         // set nr of particles
         int nP_ = rcv_dataSize/sock_.get_rcvBytesPerParticle();
 
-        //============================
-        // distribute received rcv_data to local structure
-        //distributeData(rcv_data,nP_);  // TODO HERE
-
         // this relies on the fact that there is exactly one block on each lattice
         plint iBlock = lattice.getLocalInfo().getBlocks()[0];
         std::map<plint,Box3D> blockmap = lattice.getSparseBlockStructure().getBulks();
@@ -325,10 +264,10 @@ int main(int argc, char* argv[]) {
         int h2=sock_.get_pushBytesPerPropList().size();
         for(int i=0;i<nP_;i++)
         {
-            T r; r=0;
-            T x[3],v[3],omega[3];
-            for(int k=0;k<3;k++) x[k]=v[k]=omega[k]=0;
-            plint id;
+            T r=0;
+            T x[3]={0.,0.,0.} ,v[3]={0.,0.,0.}, omega[3]={0.,0.,0.};
+
+            plint id(0);
 
             // loop all properties
             for (int j = 0; j < h2; j++)
