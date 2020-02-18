@@ -110,6 +110,7 @@ The setup follows the following scheme:
 3. **set particle shape type:** tell Aspherix® which particle shape is
    expected. In the current example, `"sphere"` is used.
 
+![initialization](init.jpg)
 
 During the actual simulation, the following steps are performed
 periodically:
@@ -132,6 +133,8 @@ periodically:
 5. **send data:** The forces are now sent to the Aspherix®
    process. See `addNextSendParticle()` and `sendData()` of the
    wrapper class to examine how the data is packed and sent.
+
+![simulation cycle](cycle.jpg)
 
 Once the last step is complete, Aspherix® simulates for a number of
 steps, and the next cycle continues.
