@@ -90,7 +90,8 @@ All data exchange is done through an instance of
 object are wrapped in the class `AspherixSocketWrapper` (to be found
 in `aspherix_socket_wrapper.h`) for clarity. To examine the actual
 calls to the `AspherixCoSimSocket` object, examine the implementation
-of the wrapper class.
+of the wrapper class. "CFD code" or "CFD process" in the following
+both refer to the code found in `sedimentingSphere.cpp`.
 
 The setup follows the following scheme:
 
@@ -108,3 +109,29 @@ The setup follows the following scheme:
    finalized with a call to `createProperties()`.
 3. **set particle shape type:** tell Aspherix® which particle shape is
    expected. In the current example, `"sphere"` is used.
+
+
+During the actual simulation, the following steps are performed
+periodically:
+
+1. **begin exchange:** The socket code `start_exchange` is written to
+   the socket by the CFD code.
+2. **exchange bounding box:** The bounding box of the CFD process is
+   written to the socket. Once Aspherix® knows the bounding box, it
+   can decide which particles to send to the CFD process. This is not
+   very important in the present example, but absolutely necessary for
+   larger, parallel calculations where the processor domains between
+   CFD and DEM simulation parts differ.
+3. **receive data:** The positions and velocities are transferred to
+   the CFD code. Examine the methods `receiveData()` and
+   `getNextParticleData()` of the wrapper to see how the data is
+   transferred and unpacked.
+4. **compute forces:** the CFD code is responsible for computing
+   forces (and possibly also torques) on the particles. This is done
+   in lines 299-309 in `sedimentingSphere.cpp`
+5. **send data:** The forces are now sent to the Aspherix®
+   process. See `addNextSendParticle()` and `sendData()` of the
+   wrapper class to examine how the data is packed and sent.
+
+Once the last step is complete, Aspherix® simulates for a number of
+steps, and the next cycle continues.
