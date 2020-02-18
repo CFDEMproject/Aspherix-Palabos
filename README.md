@@ -38,3 +38,29 @@ No further steps are necessary, since the case compiles the necessary Palabos co
 
 ## Compilation
 
+Make sure that you compiled the Aspherix CoSim library correctly, and that the Palabos-fork
+repository is properly cloned. To compile the case, a few changes to the `Makefile` in this
+repository are necessary. The `Makefile` contains several variables to configure the build 
+process. The following variables need to be adjusted:
+
+* `palabosRoot`: set this to the full absolute or relative path of your Palabos download.
+* `libraryPath`: set this to the full, absolute path where the compiled `libaspherix_cosim_socket.so` is located (usually `cosim/install/dir/lib/`)
+* `includePath`: set this to the full, absolute path where the file `aspherix_cosim_socket.h` is located (usually `cosim/install/dir/include/aspherix_cosim_socket/`)
+
+Once these settings are complete, compile the case with
+
+    make
+
+## Execution
+
+
+To run, the `LD_LIBRARY_PATH` needs to be adjusted to run the case:
+
+    export LD_LIBRARY_PATH=path/to/cosim/lib:$LD_LIBRARY_PATH
+    
+where the path is the same as `libraryPath` in the `Makefile`. Once this is done, just run
+
+    ./Allrun.sh
+    
+in the case directory.
+
