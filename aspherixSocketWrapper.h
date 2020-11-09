@@ -11,8 +11,9 @@ class AspherixSocketWrapper {
 public:
     enum class PropertyType { SCALAR_ATOM, VECTOR_ATOM };
 
-    AspherixSocketWrapper(int const nRank)
+    AspherixSocketWrapper(int const nRank, bool const _hyperthreading)
         : sock_(false,nRank),
+          hyperthreading(_hyperthreading),
           demTS(0.),
           nCGs(0),
           cg(nullptr),
@@ -22,19 +23,38 @@ public:
           rcv_data(nullptr),
           nPart(0),
           iPart_send(0),
-          iPart_rcv(0)
+          iPart_rcv(0),
+          firstStep(true)
     {}
 
     void initComm()
     {
+        std::string commProtocolVersion_("0c84OrF9\0");
+        size_t nSend = commProtocolVersion_.size()+1;
+        char *versionSend = new char[nSend];
+        strcpy(versionSend, const_cast<char*>(commProtocolVersion_.c_str()));
+
+        sock_.sendData(nSend,versionSend);
+        delete[] versionSend;
+
+        bool socketOK = false;
+        sock_.read_socket(&socketOK,sizeof(bool));
+
+        if(!socketOK)
+        {
+            std::cerr << "socket library versions don't match" << std::endl;
+            exit(1);
+        }
+
         sock_.read_socket(&demTS, sizeof(double));
         int couple_nevery = 1; // hardcoded for the moment
         sock_.write_socket(&couple_nevery, sizeof(int));
-        sock_.read_socket(&nCGs, sizeof(int));
 
+        sock_.write_socket(&hyperthreading,sizeof(bool));
+
+        sock_.read_socket(&nCGs, sizeof(int));
         if(cg) delete[] cg;
         cg = new int[nCGs];
-
         sock_.read_socket(&cg, sizeof(int)*nCGs);
     }
 
@@ -67,7 +87,17 @@ public:
 
     void beginExchange()
     {
+        if(!hyperthreading && !firstStep)
+        {
+            // start DEM
+            sock_.exchangeStatus(::SocketCodes::ping,::SocketCodes::ping);
+            // wait for DEM to finish
+            sock_.exchangeStatus(::SocketCodes::ping,::SocketCodes::ping);
+        }
+        firstStep = false;
+
         sock_.exchangeStatus(::SocketCodes::start_exchange,::SocketCodes::start_exchange);
+
         ::SocketCodes hh=::SocketCodes::start_exchange;
         sock_.write_socket(&hh, sizeof(SocketCodes));
     }
@@ -184,6 +214,7 @@ public:
     AspherixCoSimSocket sock_;
 
 private:
+    bool hyperthreading;
     double demTS;
     int nCGs;
     int  *cg;
@@ -193,6 +224,8 @@ private:
     char *send_data, *rcv_data;
 
     int nPart, iPart_send, iPart_rcv;
+    bool firstStep;
+
     std::string propTypeToStr(PropertyType const type) const
     {
         switch(type)

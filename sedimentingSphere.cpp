@@ -197,13 +197,13 @@ int main(int argc, char* argv[]) {
 
     clock_t start = clock();
 
-    AspherixSocketWrapper asx(global::mpi().getRank());
+    bool const useHyperthreading = true;
+    AspherixSocketWrapper asx(global::mpi().getRank(),useHyperthreading);
     asx.initComm();
 
     double DEMts = asx.getDEMts();
     int nCGs = asx.getNumCG();
     int cg = asx.getCG()[0];
-
 
     // ==================
     // initialize
