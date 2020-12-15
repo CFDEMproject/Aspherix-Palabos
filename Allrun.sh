@@ -25,7 +25,7 @@ DEMPID=$!
 
 # start CFD ./sedimentingSphere N uMax rho_f mu_f v_inf maxT outDir
 #bash -c "mpirun -np 2 ./sedimentingSphere 5 0.1 970 0.373 2.5 1 ./log " & # 2>&1 | tee log_CFD" &
-./sedimentingSphere 10 1 970 0.373 2.5 1 ./log #2>&1 | tee log_CFD
+./sedimentingSphere 10 1 970 0.373 2.5 0.1 ./log #2>&1 | tee log_CFD
 CFDPID=$!
 
 while [ $(kill -0 $DEMPID 2> /dev/null; echo $?) == "0" ] && [ $(kill -0 $CFDPID 2> /dev/null; echo $?) == "0" ]
