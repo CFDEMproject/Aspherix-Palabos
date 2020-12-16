@@ -15,7 +15,7 @@
 #                optimFlags   = -O -finline-functions
 
 # Leading directory of the Palabos source code
-palabosRoot  = ${CFDEM_PROJECT_DIR}/../Palabos-fork/
+palabosRoot  = ${PALABOS_DIR}/
 # Name of source files in current directory to compile and link with Palabos
 projectFiles = sedimentingSphere.cpp
 
@@ -37,9 +37,9 @@ usePOSIX     = true
 # Path to external source files (other than Palabos)
 srcPaths =
 # Path to external libraries (other than Palabos)
-libraryPaths = ${ASX_COSIM_DIR}/install/lib/
+libraryPaths = ${ASX_COSIM_DIR}/lib/
 # Path to inlude directories (other than Palabos)
-includePaths = ${ASX_COSIM_DIR}/install/include/aspherix_cosim_socket/
+includePaths = ${ASX_COSIM_DIR}/include/aspherix_cosim_socket/
 # Dynamic and static libraries (other than Palabos)
 libraries = libaspherix_cosim_socket.a
 
