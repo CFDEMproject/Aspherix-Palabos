@@ -220,14 +220,15 @@ int main(int argc, char* argv[]) {
     asx.createProperties();
     asx.setParticleShapeType("sphere");
 
-
+    int const maxStepsTmp = 3;
     // Loop over main time iteration.
-    for (plint iT=0; iT<maxSteps; ++iT) {
+    for (plint iT=0; iT<=maxStepsTmp; ++iT) {
 
         ParticleData<T>::ParticleDataArrayVector x_lb, v_lb;
         ParticleData<T>::ParticleDataScalarVector r_lb;
 
-        asx.beginExchange();
+        bool const isLastExchange = iT == maxStepsTmp;
+        asx.beginExchange(isLastExchange);
 
         // handle BB
         double limits[6] = {-100,100,-100,100,-100,100};

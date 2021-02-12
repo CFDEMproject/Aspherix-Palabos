@@ -53,9 +53,25 @@ public:
         sock_.write_socket(&hyperthreading,sizeof(bool));
 
         sock_.read_socket(&nCGs, sizeof(int));
-        if(cg) delete[] cg;
+        if(cg)
+        {
+            delete[] cg;
+            cg = nullptr;
+        }
         cg = new int[nCGs];
-        sock_.read_socket(&cg, sizeof(int)*nCGs);
+        sock_.read_socket(cg, sizeof(int)*nCGs);
+    }
+
+    void closeComm()
+    {
+        // if(hyperthreading)
+        //     sock_.exchangeStatus(::SocketCodes::close_connection,::SocketCodes::start_exchange);
+        // else
+        //     sock_.exchangeStatus(::SocketCodes::close_connection,::SocketCodes::ping);
+
+        std::cerr << "************ CLOSING!!!!! ***************" << std::endl;
+
+        sock_.exchangeStatus(::SocketCodes::request_quit,::SocketCodes::start_exchange);
     }
 
     void addPushProperty(std::string const &name, PropertyType const type)
@@ -85,7 +101,7 @@ public:
         delete[] c;
     }
 
-    void beginExchange()
+    void beginExchange(bool const isLastExchange)
     {
         if(!hyperthreading && !firstStep)
         {
@@ -96,7 +112,8 @@ public:
         }
         firstStep = false;
 
-        sock_.exchangeStatus(::SocketCodes::start_exchange,::SocketCodes::start_exchange);
+        ::SocketCodes code = isLastExchange ? ::SocketCodes::request_quit : ::SocketCodes::start_exchange;
+        sock_.exchangeStatus(code,::SocketCodes::start_exchange);
 
         ::SocketCodes hh=::SocketCodes::start_exchange;
         sock_.write_socket(&hh, sizeof(SocketCodes));
