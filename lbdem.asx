@@ -1,0 +1,47 @@
+#    wrapper.setVariable("rho_fluid",rho_f);
+#    wrapper.setVariable("dmp_dir",demOutDir);
+#    wrapper.setVariable("phys_dx",physDx);
+#    wrapper.setVariable("t_step",dt_dem);
+#    wrapper.setVariable("dmp_stp",vtkSteps*demSubsteps);
+
+variable rho_fluid equal 1
+variable rho_solid equal 112.0 #NOTE: was before 1120
+
+echo both
+
+particle_shape sphere
+simulation_domain low (0., 0., 0.) high (0.1, 0.1, 0.16)
+
+materials {m1}
+material_properties m1 &
+    youngsModulus 5e6               poissonsRatio 0.4 &
+    coefficientRestitution 0.06     coefficientFriction 0.45 &
+    coefficientRollingFriction 0.02 density ${rho_solid}&
+
+particle_contact_model normal hertz tangential history rolling_friction cdt
+wall_contact_model normal hertz tangential history rolling_friction cdt
+
+simulation_timestep 1e-5
+variable g equal 9.81
+variable g_red equal ${g}*(${rho_solid}-${rho_fluid})/${rho_solid}
+enable_gravity magnitude ${g_red}
+
+primitive_wall id zwalls1 material m1 type plane normal_axis z offset 0.
+
+#lattice sc 1
+variable d_part equal 0.015
+variable r_part equal ${d_part}/2.
+particle_template id pts material m1 radius ${r_part}
+create_particles template pts mode single position (0.05, 0.05, 0.08)
+
+# lb coupling fix
+enable_cfd_coupling
+
+write_to_terminal_timestep 1e-4
+status_style    custom step atoms ke vol
+
+variable vx equal vx[1]
+variable vy equal vy[1]
+variable vz equal vz[1]
+write_to_file string "id_time ${vx} ${vy} ${vz}" file post/velocity.txt title "#"  &
+    write_every_time 1e-3

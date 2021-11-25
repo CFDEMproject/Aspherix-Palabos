@@ -5,4 +5,4 @@
 #===================================================================#
 
 #mpirun -np 2 $CFDEM_ASX_EXEC -in in.lbdem 2>&1 | tee log_DEM
-$CFDEM_ASX_EXEC -in in.lbdem # 2>&1 | tee log_DEM
+$CFDEM_ASX_EXEC -in lbdem.asx # 2>&1 | tee log_DEM
