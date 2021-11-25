@@ -220,6 +220,9 @@ int main(int argc, char* argv[]) {
     asx.createProperties();
     asx.setParticleShapeType("sphere");
 
+    // recv ok on comm setup fom DEM
+    asx.confirmComm();
+
     int const maxStepsTmp = 3;
     // Loop over main time iteration.
     for (plint iT=0; iT<=maxStepsTmp; ++iT) {

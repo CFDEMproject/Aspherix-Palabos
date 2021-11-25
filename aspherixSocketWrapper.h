@@ -29,7 +29,8 @@ public:
 
     void initComm()
     {
-        std::string commProtocolVersion_("0c84OrF9\0");
+        // check version
+        std::string commProtocolVersion_("edNiFKfX\0");
         size_t nSend = commProtocolVersion_.size()+1;
         char *versionSend = new char[nSend];
         strcpy(versionSend, const_cast<char*>(commProtocolVersion_.c_str()));
@@ -46,12 +47,37 @@ public:
             exit(1);
         }
 
+        // DEM time step and coupling interval
         sock_.read_socket(&demTS, sizeof(double));
         int couple_nevery = 1; // hardcoded for the moment
         sock_.write_socket(&couple_nevery, sizeof(int));
 
+        // communicate start time
+        double start_time = 0.; // hardcoded for the moment
+        sock_.write_socket(&start_time, sizeof(double));
+
+        // hyperthreading
         sock_.write_socket(&hyperthreading,sizeof(bool));
 
+        // writing trigger
+        bool trigger_DEM_output = false; // write independently
+        sock_.write_socket(&trigger_DEM_output, sizeof(bool));
+
+        // gravity
+        double grav[3];
+        sock_.read_socket(&grav, 3*sizeof(double));
+
+        // number of particle templates
+        int n_particle_templates = 0;
+        sock_.read_socket(&n_particle_templates, sizeof(int));
+
+        // check status against DEM
+        if (hyperthreading)
+            sock_.exchangeStatus(::SocketCodes::start_exchange, ::SocketCodes::start_exchange);
+        else
+            sock_.exchangeStatus(::SocketCodes::ping, ::SocketCodes::ping);
+
+        // coarse graining
         sock_.read_socket(&nCGs, sizeof(int));
         if(cg)
         {
@@ -60,6 +86,28 @@ public:
         }
         cg = new int[nCGs];
         sock_.read_socket(cg, sizeof(int)*nCGs);
+    }
+
+    void confirmComm()
+    {
+        ::SocketCodes code = ::SocketCodes::start_exchange;
+        sock_.read_socket(&code, sizeof(SocketCodes));
+
+        if (code != ::SocketCodes::start_exchange)
+        {
+            if (code == ::SocketCodes::invalid)
+                // there was an error on the DEM side, report
+                std::cerr << "Not all requested properties are available on the DEM side. "
+                    << "Check the error message from your DEM code for more details."
+                    << std::endl;
+            else
+                // status codes dont match --> something else went wrong
+                std::cerr << "Socket status codes dont match! This is fatal." << std::endl;
+            exit(1);
+        }
+
+        ::SocketCodes se =::SocketCodes::start_exchange;
+        sock_.write_socket(&se, sizeof(SocketCodes));
     }
 
     void closeComm()
