@@ -11,10 +11,13 @@ class AspherixSocketWrapper {
 public:
     enum class PropertyType { SCALAR_ATOM, VECTOR_ATOM };
 
-    AspherixSocketWrapper(int const nRank, bool const _hyperthreading)
+    AspherixSocketWrapper(int const nRank, bool const _hyperthreading,
+                          double const _cfd_viscosity, double const _cfd_density)
         : sock_(false,nRank),
           hyperthreading(_hyperthreading),
           demTS(0.),
+          cfd_viscosity(_cfd_viscosity),
+          cfd_density(_cfd_density),
           nCGs(0),
           cg(nullptr),
           send_dataSize(0),
@@ -30,7 +33,7 @@ public:
     void initComm()
     {
         // check version
-        std::string commProtocolVersion_("edNiFKfX\0");
+        std::string commProtocolVersion_("8AdwneoY");
         size_t nSend = commProtocolVersion_.size()+1;
         char *versionSend = new char[nSend];
         strcpy(versionSend, const_cast<char*>(commProtocolVersion_.c_str()));
@@ -55,6 +58,10 @@ public:
         // communicate start time
         double start_time = 0.; // hardcoded for the moment
         sock_.write_socket(&start_time, sizeof(double));
+
+        // viscosity & density
+        sock_.write_socket(&cfd_viscosity, sizeof(double));
+        sock_.write_socket(&cfd_density, sizeof(double));
 
         // hyperthreading
         sock_.write_socket(&hyperthreading,sizeof(bool));
@@ -280,7 +287,7 @@ public:
 
 private:
     bool hyperthreading;
-    double demTS;
+    double demTS, cfd_viscosity, cfd_density;
     int nCGs;
     int  *cg;
 
