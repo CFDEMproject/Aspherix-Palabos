@@ -33,7 +33,7 @@ public:
     void initComm()
     {
         // check version
-        std::string commProtocolVersion_("8AdwneoY");
+        std::string commProtocolVersion_("4r8mpCGU");
         size_t nSend = commProtocolVersion_.size()+1;
         char *versionSend = new char[nSend];
         strcpy(versionSend, const_cast<char*>(commProtocolVersion_.c_str()));
