@@ -33,7 +33,7 @@ public:
     void initComm()
     {
         // check version
-        std::string commProtocolVersion_("4r8mpCGU");
+        std::string commProtocolVersion_("RkubLWat");
         size_t nSend = commProtocolVersion_.size()+1;
         char *versionSend = new char[nSend];
         strcpy(versionSend, const_cast<char*>(commProtocolVersion_.c_str()));
@@ -60,6 +60,8 @@ public:
         sock_.write_socket(&start_time, sizeof(double));
 
         // viscosity & density
+        bool const_visc = true;
+        sock_.write_socket(&const_visc, sizeof(bool));
         sock_.write_socket(&cfd_viscosity, sizeof(double));
         sock_.write_socket(&cfd_density, sizeof(double));
 
