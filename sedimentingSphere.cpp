@@ -203,7 +203,7 @@ int main(int argc, char* argv[]) {
 
     double DEMts = asx.getDEMts();
     int nCGs = asx.getNumCG();
-    int cg = asx.getCG()[0];
+    double cg = asx.getCG()[0];
 
     // ==================
     // initialize

@@ -33,7 +33,7 @@ public:
     void initComm()
     {
         // check version
-        std::string commProtocolVersion_("RkubLWat");
+        std::string commProtocolVersion_("QonDRpSq");
         size_t nSend = commProtocolVersion_.size()+1;
         char *versionSend = new char[nSend];
         strcpy(versionSend, const_cast<char*>(commProtocolVersion_.c_str()));
@@ -93,8 +93,8 @@ public:
             delete[] cg;
             cg = nullptr;
         }
-        cg = new int[nCGs];
-        sock_.read_socket(cg, sizeof(int)*nCGs);
+        cg = new double[nCGs];
+        sock_.read_socket(cg, sizeof(double)*nCGs);
     }
 
     void confirmComm()
@@ -283,7 +283,7 @@ public:
 
     double getDEMts() const { return demTS; }
     int getNumCG() const { return nCGs; }
-    int const * const getCG() const { return cg; }
+    double const * const getCG() const { return cg; }
 
     AspherixCoSimSocket sock_;
 
@@ -291,7 +291,7 @@ private:
     bool hyperthreading;
     double demTS, cfd_viscosity, cfd_density;
     int nCGs;
-    int  *cg;
+    double  *cg;
 
     // init rcv_data pointer
     size_t send_dataSize, rcv_dataSize;
