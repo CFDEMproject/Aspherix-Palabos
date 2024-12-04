@@ -33,12 +33,12 @@ public:
     void initComm()
     {
         // check version
-        std::string commProtocolVersion_("QonDRpSq");
+        std::string commProtocolVersion_("4v7utXvs");
         size_t nSend = commProtocolVersion_.size()+1;
         char *versionSend = new char[nSend];
         strcpy(versionSend, const_cast<char*>(commProtocolVersion_.c_str()));
 
-        sock_.sendData(nSend,versionSend);
+        sock_.sendData(nSend, versionSend);
         delete[] versionSend;
 
         bool socketOK = false;
@@ -71,6 +71,8 @@ public:
         // writing trigger
         bool trigger_DEM_output = false; // write independently
         sock_.write_socket(&trigger_DEM_output, sizeof(bool));
+        double write_interval = 0.; // write interval -- unused but for compliance
+        sock_.write_socket(&write_interval, sizeof(double));
 
         // gravity
         double grav[3];
@@ -158,6 +160,31 @@ public:
         delete[] c;
     }
 
+    void checkSolver()
+    {
+        // send solverName and receive acceptance from DEM
+        std::string solverName("cfdemSolverPiso");
+        size_t nSend = solverName.size()+1;
+        char *solverNameSend = new char[nSend];
+        strcpy(solverNameSend, const_cast<char*>(solverName.c_str()));
+        sock_.sendData(nSend, solverNameSend);
+        delete[] solverNameSend;
+
+        SocketCodes solver_code = ::SocketCodes::start_exchange;
+        sock_.read_socket(&solver_code, sizeof(::SocketCodes));
+        if (solver_code != ::SocketCodes::start_exchange)
+        {
+            if (solver_code == ::SocketCodes::invalid)
+                std::cerr << "The solver you are using ('" << solverName << "') is not "
+                    << "compatible with your Aspherix version. "
+                    << "Check the error message from your DEM code for more details."
+                    << std::endl;
+            else
+                std::cerr << "Socket status codes dont match! This is fatal. 1" << std::endl;
+            exit(1);
+        }
+    }
+
     void beginExchange(bool const isLastExchange)
     {
         if(!hyperthreading && !firstStep)
@@ -185,11 +212,13 @@ public:
     void receiveData(int &nP)
     {
         rcv_dataSize = 0;
+        if (rcv_data)
+            delete[] rcv_data;
         rcv_data = nullptr;
 
-        sock_.rcvData(rcv_dataSize,rcv_data);
+        sock_.rcvData(rcv_dataSize, rcv_data);
 
-        nPart = rcv_dataSize/sock_.get_rcvBytesPerParticle();
+        nPart = rcv_dataSize / sock_.get_rcvBytesPerParticle();
         nP = nPart;
         iPart_rcv = 0;
     }

@@ -218,6 +218,7 @@ int main(int argc, char* argv[]) {
     asx.addPullProperty("dragforce",AspherixSocketWrapper::PropertyType::VECTOR_ATOM);
 
     asx.createProperties();
+    asx.checkSolver();
     asx.setParticleShapeType("sphere");
 
     // recv ok on comm setup fom DEM
