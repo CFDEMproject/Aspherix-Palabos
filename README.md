@@ -19,7 +19,7 @@ repository](https://github.com/CFDEMproject/Aspherix-CoSim-Socket-Lib). Then,
 compile and install the content with
 
     mkdir build && cd build
-    cmake -DCMAKE_INSTALL_PREFIX=path/to/install/destination path/to/socketlib/src
+    cmake -DCMAKE_INSTALL_PREFIX=path/to/install/destination path/to/socketlib/src -DSTATIC_LIBRARY=ON
     make
     make install
 

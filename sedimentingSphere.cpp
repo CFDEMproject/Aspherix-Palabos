@@ -23,6 +23,7 @@
 #include "ibProcessors3D.h"
 #include "physunits.h"
 
+#include <array>
 #include <vector>
 #include <cmath>
 #include <iostream>
@@ -199,30 +200,33 @@ int main(int argc, char* argv[]) {
 
     bool const useHyperthreading = true;
     AspherixSocketWrapper asx(global::mpi().getRank(),useHyperthreading,nu_f,rho_f);
-    asx.initComm();
-
-    double DEMts = asx.getDEMts();
-    int nCGs = asx.getNumCG();
-    double cg = asx.getCG()[0];
 
     // ==================
     // initialize
     // build vectors of push and pull names/types
     //setPushPullProperties();
-
-    // define push (from DEM to CFD) properties
-    asx.addPushProperty("radius",AspherixSocketWrapper::PropertyType::SCALAR_ATOM);
-    asx.addPushProperty("x",AspherixSocketWrapper::PropertyType::VECTOR_ATOM);
-    asx.addPushProperty("v",AspherixSocketWrapper::PropertyType::VECTOR_ATOM);
-
-    asx.addPullProperty("dragforce",AspherixSocketWrapper::PropertyType::VECTOR_ATOM);
-
-    asx.createProperties();
-    asx.checkSolver();
     asx.setParticleShapeType("sphere");
 
+    using PropertyType = AspherixSocketWrapper::PropertyType;
+
+    // define push (from DEM to CFD) properties
+    asx.addField("radius"   , PropertyType::SCALAR_ATOM, kRecv);
+    asx.addField("x"        , PropertyType::VECTOR_ATOM, kRecv);
+    asx.addField("v"        , PropertyType::VECTOR_ATOM, kRecv);
+    asx.addField("dragforce", PropertyType::VECTOR_ATOM, kSend);
+    asx.processFields();
+
+    asx.initializeCommunication();
+
+    double DEMts = asx.getDEMts();
+    int nCGs = asx.getNumCG();
+    double cg = asx.getCG()[0];
+
+    // asx.createProperties();
+    // asx.checkSolver();
+
     // recv ok on comm setup fom DEM
-    asx.confirmComm();
+    // asx.confirmComm();
 
     int const maxStepsTmp = 3;
     // Loop over main time iteration.
@@ -235,7 +239,7 @@ int main(int argc, char* argv[]) {
         asx.beginExchange(isLastExchange);
 
         // handle BB
-        double limits[6] = {-100,100,-100,100,-100,100};
+        std::array<double,6> limits = {-100,100,-100,100,-100,100};
         asx.exchangeDomain(limits);
 
         // this relies on the fact that there is exactly one block on each lattice
@@ -246,8 +250,7 @@ int main(int argc, char* argv[]) {
         double r=0;
         double x[3] = {0.,0.,0.}, v[3] = {0.,0.,0.}, omega[3] = {0.,0.,0.};
 
-        int nP_(0);
-        asx.receiveData(nP_);
+        asx.receiveData();
 
         while(asx.getNextParticleData(r,x,v))
         {
@@ -298,10 +301,11 @@ int main(int argc, char* argv[]) {
 
         lattice.collideAndStream();
 
-        plint const n_force = nP_*3;
+        std::size_t num_particles = asx.getNumParticles();
+        plint const n_force = num_particles * 3;
         std::vector<T> force(n_force),torque(n_force);
 
-        if(nP_ > 0)
+        if (num_particles > 0)
         {
             SumForceTorque3D<T,DESCRIPTOR> *sft = new SumForceTorque3D<T,DESCRIPTOR>(x_lb,
                                                                                      &force.front(),&torque.front()
@@ -317,7 +321,7 @@ int main(int argc, char* argv[]) {
         //=========
         // gather local data send_data
         //gatherData(send_data,nP_); // TODO HERE
-        for(int i=0;i<nP_;i++)
+        for (std::size_t i = 0; i < num_particles; i++)
         {
             double f[3] = {
                 units.getPhysForce(force[3*i+0]),

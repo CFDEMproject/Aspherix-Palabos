@@ -1,11 +1,20 @@
 #ifndef ASPHERIX_SOCKET_WRAPPER_H
 #define ASPHERIX_SOCKET_WRAPPER_H
 
+#include <array>
 #include <map>
+#include <memory>
 #include <string>
+#include <tuple>
 #include <vector>
 
+#include "Aspherix-CoSim-Socket-Lib/aspherix_cosim_socket.h"
+#include "aspherix_cosim_field.h"
+#include "aspherix_cosim_settings.h"
 #include "aspherix_cosim_socket.h"
+
+constexpr auto kRecv = CoSimSocket::SyncDirection::kServerToClient;
+constexpr auto kSend = CoSimSocket::SyncDirection::kClientToServer;
 
 class AspherixSocketWrapper {
 public:
@@ -13,36 +22,53 @@ public:
 
     AspherixSocketWrapper(int const nRank, bool const _hyperthreading,
                           double const _cfd_viscosity, double const _cfd_density)
-        : sock_(false,nRank),
+        : sock_(std::make_shared<CoSimSocket::AspherixCoSimSocket>(CoSimSocket::Mode::kClient, nRank)),
           hyperthreading(_hyperthreading),
           demTS(0.),
           cfd_viscosity(_cfd_viscosity),
           cfd_density(_cfd_density),
-          nCGs(0),
-          cg(nullptr),
-          send_dataSize(0),
-          rcv_dataSize(0),
-          send_data(nullptr),
-          rcv_data(nullptr),
           nPart(0),
           iPart_send(0),
           iPart_rcv(0),
           firstStep(true)
     {}
 
-    void initComm()
+    void processFields()
     {
-        // check version
-        std::string commProtocolVersion_("4v7utXvs");
-        size_t nSend = commProtocolVersion_.size()+1;
-        char *versionSend = new char[nSend];
-        strcpy(versionSend, const_cast<char*>(commProtocolVersion_.c_str()));
+        pull_size_one_point_ = 0;
+        push_size_one_point_ = 0;
+        for (auto &field : fields_)
+        {
+            // const auto field_data_length = field.data_length();
+            // if (needs_reallocation_)
+            //     >allocateFieldData(field_index, 0.0, field_data_length, num_points_);
+            if (field.isClientToServer())
+            {
+                field.setOffset(push_size_one_point_);
+                push_size_one_point_ += field.dataTypeSize();
+            }
+            else if (field.isServerToClient())
+            {
+                field.setOffset(pull_size_one_point_);
+                pull_size_one_point_ += field.dataTypeSize();
+            }
+        }
+    }
 
-        sock_.sendData(nSend, versionSend);
-        delete[] versionSend;
+    void initializeCommunication()
+    {
+        using namespace CoSimSocket;
+
+        const std::string commProtocolVersion_ = "HaikuCup";
+        auto settings = CoSimSettings(sock_);
+        settings.addSetting("client_protocol_id", commProtocolVersion_, kSend);
+        settings.sync();
 
         bool socketOK = false;
-        sock_.read_socket(&socketOK,sizeof(bool));
+        settings.clearSettings();
+        settings.addSetting("matching_protocol_ids", socketOK, kRecv);
+        settings.sync();
+        socketOK = settings.getSetting<bool>("matching_protocol_ids");
 
         if(!socketOK)
         {
@@ -50,63 +76,75 @@ public:
             exit(1);
         }
 
-        // DEM time step and coupling interval
-        sock_.read_socket(&demTS, sizeof(double));
-        int couple_nevery = 1; // hardcoded for the moment
-        sock_.write_socket(&couple_nevery, sizeof(int));
-
-        // communicate start time
-        double start_time = 0.; // hardcoded for the moment
-        sock_.write_socket(&start_time, sizeof(double));
-
-        // viscosity & density
-        bool const_visc = true;
-        sock_.write_socket(&const_visc, sizeof(bool));
-        sock_.write_socket(&cfd_viscosity, sizeof(double));
-        sock_.write_socket(&cfd_density, sizeof(double));
-
-        // hyperthreading
-        sock_.write_socket(&hyperthreading,sizeof(bool));
-
-        // writing trigger
-        bool trigger_DEM_output = false; // write independently
-        sock_.write_socket(&trigger_DEM_output, sizeof(bool));
-        double write_interval = 0.; // write interval -- unused but for compliance
-        sock_.write_socket(&write_interval, sizeof(double));
-
-        // gravity
-        double grav[3];
-        sock_.read_socket(&grav, 3*sizeof(double));
-
-        // number of particle templates
+        // Receive data from Aspherix
+        using array3 = std::array<double, 3>;
+        array3 gravity_DEM;
         int n_particle_templates = 0;
-        sock_.read_socket(&n_particle_templates, sizeof(int));
+
+        settings.clearSettings();
+        settings.addSetting("DEMts", demTS, kRecv);
+        settings.addSetting("gravity", gravity_DEM, kRecv);
+        settings.addSetting("num_particle_templates", n_particle_templates, kRecv);
+        settings.sync();
+
+        demTS = settings.getSetting<double>("DEMts");
+        gravity_DEM = settings.getSetting<array3>("gravity");
+        n_particle_templates = settings.getSetting<int>("num_particle_templates");
+
+        // Send data to Aspherix (hardcoded for the moment)
+        int couple_nevery = 1;
+        double start_time = 0.;
+        bool const_density = true;
+        bool trigger_DEM_output = false;          // write independently
+        double write_interval = 0.;               // write interval -- unused but for compliance
+        std::vector<std::string> boundary_names;  // unused
+
+        settings.clearSettings();
+        settings.addSetting("couple_nevery", couple_nevery, kSend);
+        settings.addSetting("cfd_start_time", start_time, kSend);
+        settings.addSetting("is_const_density", const_density, kSend);
+        settings.addSetting("cfd_density", cfd_density, kSend);
+        settings.addSetting("cfd_viscosity", cfd_viscosity, kSend);
+        settings.addSetting("hyperthreading", hyperthreading, kSend);
+        settings.addSetting("trigger_output", trigger_DEM_output, kSend);
+        settings.addSetting("write_interval_CFD", write_interval, kSend);
+        settings.addSetting("boundary_names", boundary_names, kSend);
+        settings.sync();
 
         // check status against DEM
         if (hyperthreading)
-            sock_.exchangeStatus(::SocketCodes::start_exchange, ::SocketCodes::start_exchange);
+            sock_->exchangeStatus(SocketCodes::kStartExchange, SocketCodes::kStartExchange);
         else
-            sock_.exchangeStatus(::SocketCodes::ping, ::SocketCodes::ping);
+            sock_->exchangeStatus(SocketCodes::kPing, SocketCodes::kPing);
 
-        // coarse graining
-        sock_.read_socket(&nCGs, sizeof(int));
-        if(cg)
+        [[maybe_unused]] const int num_coupled_boundaries = sock_->readValue<std::size_t>();
+        const std::vector<double> cg = sock_->readData<double>();
+
+        const std::string solverName("cfdemSolverPiso");
+        settings.clearSettings();
+        settings.addSetting("particle_shape_type", particle_shape_, kSend);
+        settings.addSetting("fields", fields_, kSend);
+        settings.addSetting("solver_name", solverName, kSend);
+        settings.sync();
+
+        auto solver_code = sock_->exchangeStatus(SocketCodes::kStartExchange);
+        if (solver_code != SocketCodes::kStartExchange)
         {
-            delete[] cg;
-            cg = nullptr;
+            if (solver_code == SocketCodes::kInvalid)
+                std::cerr << "The solver you are using ('" << solverName << "') is not "
+                    << "compatible with your Aspherix version. "
+                    << "Check the error message from your DEM code for more details."
+                    << std::endl;
+            else
+                std::cerr << "Socket status codes dont match! This is fatal." << std::endl;
+            exit(1);
         }
-        cg = new double[nCGs];
-        sock_.read_socket(cg, sizeof(double)*nCGs);
-    }
 
-    void confirmComm()
-    {
-        ::SocketCodes code = ::SocketCodes::start_exchange;
-        sock_.read_socket(&code, sizeof(SocketCodes));
-
-        if (code != ::SocketCodes::start_exchange)
+        // Check for errors on DEM side
+        SocketCodes code = sock_->exchangeStatus();
+        if (code != SocketCodes::kStartExchange)
         {
-            if (code == ::SocketCodes::invalid)
+            if (code == SocketCodes::kInvalid)
                 // there was an error on the DEM side, report
                 std::cerr << "Not all requested properties are available on the DEM side. "
                     << "Check the error message from your DEM code for more details."
@@ -117,110 +155,70 @@ public:
             exit(1);
         }
 
-        ::SocketCodes se =::SocketCodes::start_exchange;
-        sock_.write_socket(&se, sizeof(SocketCodes));
+        sock_->exchangeStatus(SocketCodes::kStartExchange, SocketCodes::kPing);
     }
 
     void closeComm()
     {
+        using CoSimSocket::SocketCodes;
         // if(hyperthreading)
-        //     sock_.exchangeStatus(::SocketCodes::close_connection,::SocketCodes::start_exchange);
+        //     sock_->exchangeStatus(SocketCodes::kCloseConnection,SocketCodes::kStartExchange);
         // else
-        //     sock_.exchangeStatus(::SocketCodes::close_connection,::SocketCodes::ping);
+        //     sock_->exchangeStatus(SocketCodes::kCloseConnection,SocketCodes::ping);
 
         std::cerr << "************ CLOSING!!!!! ***************" << std::endl;
 
-        sock_.exchangeStatus(::SocketCodes::request_quit,::SocketCodes::start_exchange);
+        sock_->exchangeStatus(SocketCodes::kRequestQuit,SocketCodes::kStartExchange);
     }
 
-    void addPushProperty(std::string const &name, PropertyType const type)
+    void addField(std::string const &name, PropertyType const type, const CoSimSocket::SyncDirection direction)
     {
-        sock_.pushBack_pushNameList(name);
-        sock_.pushBack_pushTypeList(propTypeToStr(type));
-    }
-
-    void addPullProperty(std::string const &name, PropertyType const type)
-    {
-        sock_.pushBack_pullNameList(name);
-        sock_.pushBack_pullTypeList(propTypeToStr(type));
-    }
-
-    void createProperties()
-    {
-        sock_.buildBytePattern();
-        sock_.sendPushPullProperties();
+        using namespace CoSimSocket;
+        auto [data_type, data_length, object] = propTypeToTuple(type);
+        fields_.emplace_back(CoSimField(name, "particles", data_type, data_length, object, direction));
     }
 
     void setParticleShapeType(std::string const &pst)
     {
-        size_t sendSize = pst.size()+1;
-        char *c = new char[sendSize];
-        strcpy(c,pst.c_str());
-        sock_.sendData(sendSize,c);
-        delete[] c;
-    }
-
-    void checkSolver()
-    {
-        // send solverName and receive acceptance from DEM
-        std::string solverName("cfdemSolverPiso");
-        size_t nSend = solverName.size()+1;
-        char *solverNameSend = new char[nSend];
-        strcpy(solverNameSend, const_cast<char*>(solverName.c_str()));
-        sock_.sendData(nSend, solverNameSend);
-        delete[] solverNameSend;
-
-        SocketCodes solver_code = ::SocketCodes::start_exchange;
-        sock_.read_socket(&solver_code, sizeof(::SocketCodes));
-        if (solver_code != ::SocketCodes::start_exchange)
-        {
-            if (solver_code == ::SocketCodes::invalid)
-                std::cerr << "The solver you are using ('" << solverName << "') is not "
-                    << "compatible with your Aspherix version. "
-                    << "Check the error message from your DEM code for more details."
-                    << std::endl;
-            else
-                std::cerr << "Socket status codes dont match! This is fatal. 1" << std::endl;
-            exit(1);
-        }
+        particle_shape_ = pst;
     }
 
     void beginExchange(bool const isLastExchange)
     {
+        using namespace CoSimSocket;
+
         if(!hyperthreading && !firstStep)
         {
             // start DEM
-            sock_.exchangeStatus(::SocketCodes::ping,::SocketCodes::ping);
+            sock_->exchangeStatus(SocketCodes::kPing,SocketCodes::kPing);
             // wait for DEM to finish
-            sock_.exchangeStatus(::SocketCodes::ping,::SocketCodes::ping);
+            sock_->exchangeStatus(SocketCodes::kPing,SocketCodes::kPing);
         }
         firstStep = false;
 
-        ::SocketCodes code = isLastExchange ? ::SocketCodes::request_quit : ::SocketCodes::start_exchange;
-        sock_.exchangeStatus(code,::SocketCodes::start_exchange);
+        SocketCodes code = isLastExchange ? SocketCodes::kRequestQuit : SocketCodes::kStartExchange;
+        sock_->exchangeStatus(code, SocketCodes::kStartExchange);
+        sock_->exchangeStatus(code, SocketCodes::kStartExchange);
 
-        ::SocketCodes hh=::SocketCodes::start_exchange;
-        sock_.write_socket(&hh, sizeof(SocketCodes));
+        SocketCodes hh = SocketCodes::kStartExchange;
+        sock_->write_socket(&hh, sizeof(SocketCodes));
     }
 
-    void exchangeDomain(double *limits)
+    void exchangeDomain(std::array<double, 6> limits)
     {
-        bool const useBB = true;
-        sock_.exchangeDomain(useBB,limits);
+        sock_->exchangeValue<CoSimSocket::SyncDirection::kSend>(limits);
     }
 
-    void receiveData(int &nP)
+    void receiveData()
     {
-        rcv_dataSize = 0;
-        if (rcv_data)
-            delete[] rcv_data;
-        rcv_data = nullptr;
+        num_points_ = sock_->readValue<std::size_t>();
+        const auto size_one_point = sock_->readValue<std::size_t>();
+        sock_->readData<char>(recv_buffer_);
 
-        sock_.rcvData(rcv_dataSize, rcv_data);
+        assert(size_one_point == pull_size_one_point_);
 
-        nPart = rcv_dataSize / sock_.get_rcvBytesPerParticle();
-        nP = nPart;
-        iPart_rcv = 0;
+        send_buffer_.resize(num_points_ * push_size_one_point_);
+        recv_buffer_.resize(num_points_ * pull_size_one_point_);
     }
 
     bool getNextParticleData(double &r, double x[3], double v[3])
@@ -228,49 +226,30 @@ public:
         if(iPart_rcv >= nPart)
             return false;
 
-        int h=sock_.get_rcvBytesPerParticle();
-        int h2=sock_.get_pushBytesPerPropList().size();
-        // loop all properties
-        for (int j = 0; j < h2; j++)
+        for (const auto& field : fields_)
         {
-            int const index_from = iPart_rcv*h + sock_.get_pushCumOffsetPerProperty()[j];
-            int const len = sock_.get_pushBytesPerPropList()[j];
+            if (field.isClientToServer())
+                continue;
 
-            // cut out part of string
-            char* str = new char[len+1];
-            memmove(str, rcv_data + index_from, len);
-            str[len] = '\0';
+            const int index_from = iPart_rcv * pull_size_one_point_ + field.offset();
+            const void* ptr_to_value = recv_buffer_.data() + index_from;
+            const double *value = reinterpret_cast<const double*>(ptr_to_value);
 
-            if(sock_.get_pushTypeList()[j]=="scalar-atom")
+            if (field.name() == "radius")
+                r = value[0];
+            else
             {
-                double* b=(double*)(str);
+                double *ptr_to_data = nullptr;
+                if (field.name() == "x")
+                    ptr_to_data = &x[0];
+                else if (field.name() == "v")
+                    ptr_to_data = &v[0];
 
-                if(sock_.get_pushNameList()[j]=="radius")
+                for (std::size_t k = 0; k < field.data_length(); ++k)
                 {
-                    r = b[0];
+                    ptr_to_data[k] = value[k];
                 }
             }
-            else if(sock_.get_pushTypeList()[j]=="vector-atom")
-            {
-                double* b=(double*)(str);
-
-                if(sock_.get_pushNameList()[j]=="v")
-                {
-                    for(int k=0;k<3;k++)
-                    {
-                        v[k] = b[k];
-                    }
-                }
-                else if(sock_.get_pushNameList()[j]=="x")
-                {
-                    for(int k=0;k<3;k++)
-                    {
-                        x[k] = b[k];
-                    }
-                }
-            }
-            delete [] str;
-
         }
         iPart_rcv++;
         return true;
@@ -278,67 +257,66 @@ public:
 
     void addNextSendParticle(double *f)
     {
-        if(iPart_send == 0)
-        {
-            send_dataSize = nPart*sock_.get_sndBytesPerParticle();
-            send_data = new char[send_dataSize];
-        }
-
         // we assume for the moment that only the drag force is being transfered
         // can be easily extended to account for torque as well
-        int const h = sock_.get_sndBytesPerParticle();
-        int const h2 = sock_.get_pullNameList().size();
-
-        for(int j=0;j<h2;j++)
+        for (const auto& field : fields_)
         {
-            int const index_from = iPart_send*h + sock_.get_pullCumOffsetPerProperty()[j];
-            int const len = sock_.get_pullBytesPerPropList()[j];
-            if(sock_.get_pullTypeList()[j]=="vector-atom" && sock_.get_pullNameList()[j]=="dragforce")
-            {
-                memcpy(&send_data[index_from],(char*)f,len);
-            }
-        }
+            if (field.isServerToClient())
+                continue;
 
+            const auto data_index_from = iPart_send * push_size_one_point_ + field.offset();
+            if (field.name() == "dragforce")
+                memcpy(&send_buffer_[data_index_from], f, field.dataTypeSize());
+        }
         iPart_send++;
     }
 
     void sendData()
     {
-        sock_.sendData(send_dataSize,send_data);
-        delete[] send_data;
-        send_data = nullptr;
+        sock_->writeData(send_buffer_);
         iPart_send = 0;
     }
 
     double getDEMts() const { return demTS; }
-    int getNumCG() const { return nCGs; }
-    double const * const getCG() const { return cg; }
-
-    AspherixCoSimSocket sock_;
+    int getNumCG() const { return static_cast<int>(cg.size()); }
+    double const * const getCG() const { return cg.data(); }
+    std::size_t getNumParticles() const { return num_points_; }
 
 private:
+    std::shared_ptr<CoSimSocket::AspherixCoSimSocket> sock_;
+
     bool hyperthreading;
     double demTS, cfd_viscosity, cfd_density;
-    int nCGs;
-    double  *cg;
+    std::vector<double> cg;
+    std::string particle_shape_;
 
-    // init rcv_data pointer
-    size_t send_dataSize, rcv_dataSize;
-    char *send_data, *rcv_data;
+    std::vector<CoSimSocket::CoSimField> fields_;
+    std::size_t pull_size_one_point_;
+    std::size_t push_size_one_point_;
+
+    std::size_t num_points_;
+
+    std::vector<char> recv_buffer_;
+    std::vector<char> send_buffer_;
 
     int nPart, iPart_send, iPart_rcv;
     bool firstStep;
 
-    std::string propTypeToStr(PropertyType const type) const
+    std::tuple<CoSimSocket::DataType, std::size_t, CoSimSocket::DataObject> propTypeToTuple(PropertyType const type) const
     {
+        using namespace CoSimSocket;
+        DataType data_type = DataType::kDouble;
+        std::size_t data_length = 0;
+        DataObject object = DataObject::kParticle;
+
         switch(type)
         {
         case PropertyType::SCALAR_ATOM:
-            return "scalar-atom";
+            data_length = 1;
         case PropertyType::VECTOR_ATOM:
-            return "vector-atom";
+            data_length = 3;
         }
-        return "";
+        return {data_type, data_length, object};
     }
 };
 

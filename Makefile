@@ -48,7 +48,7 @@ serialCXX    = g++
 # Compiler to use with MPI parallelism
 parallelCXX  = mpic++ -fpic
 # General compiler flags (e.g. -Wall to turn on all warnings on g++)
-compileFlags = -Wall -std=c++11 -Wnon-virtual-dtor -Wno-write-strings
+compileFlags = -Wall -std=c++17 -Wnon-virtual-dtor -Wno-write-strings
 # General linker flags (don't put library includes into this flag)
 linkFlags    =
 # Compiler flags to use when optimization mode is on
