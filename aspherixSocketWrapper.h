@@ -8,10 +8,9 @@
 #include <tuple>
 #include <vector>
 
-#include "Aspherix-CoSim-Socket-Lib/aspherix_cosim_socket.h"
+#include "aspherix_cosim_socket.h"
 #include "aspherix_cosim_field.h"
 #include "aspherix_cosim_settings.h"
-#include "aspherix_cosim_socket.h"
 
 constexpr auto kRecv = CoSimSocket::SyncDirection::kServerToClient;
 constexpr auto kSend = CoSimSocket::SyncDirection::kClientToServer;
@@ -118,7 +117,7 @@ public:
             sock_->exchangeStatus(SocketCodes::kPing, SocketCodes::kPing);
 
         [[maybe_unused]] const int num_coupled_boundaries = sock_->readValue<std::size_t>();
-        const std::vector<double> cg = sock_->readData<double>();
+        cg = sock_->readData<double>();
 
         const std::string solverName("cfdemSolverPiso");
         settings.clearSettings();
@@ -196,29 +195,44 @@ public:
         }
         firstStep = false;
 
+        // communicate simulation end
         SocketCodes code = isLastExchange ? SocketCodes::kRequestQuit : SocketCodes::kStartExchange;
         sock_->exchangeStatus(code, SocketCodes::kStartExchange);
-        sock_->exchangeStatus(code, SocketCodes::kStartExchange);
 
-        SocketCodes hh = SocketCodes::kStartExchange;
-        sock_->write_socket(&hh, sizeof(SocketCodes));
+        sock_->exchangeStatus(SocketCodes::kStartExchange, SocketCodes::kPing);
     }
 
     void exchangeDomain(std::array<double, 6> limits)
     {
+        using namespace CoSimSocket;
+
+        sock_->exchangeStatus(SocketCodes::kStartExchange, SocketCodes::kStartExchange);
+        sock_->exchangeStatus(SocketCodes::kBoundingBoxUpdate, SocketCodes::kPing);
         sock_->exchangeValue<CoSimSocket::SyncDirection::kSend>(limits);
     }
 
     void receiveData()
     {
-        num_points_ = sock_->readValue<std::size_t>();
-        const auto size_one_point = sock_->readValue<std::size_t>();
-        sock_->readData<char>(recv_buffer_);
+        using namespace CoSimSocket;
 
-        assert(size_one_point == pull_size_one_point_);
+        const std::size_t n_containers = sock_->readValue<std::size_t>();
+        auto server_code = sock_->exchangeStatus(SocketCodes::kStartExchange);
+        if (server_code == SocketCodes::kPing)
+        {
+            num_points_ = sock_->readValue<std::size_t>();
+            const auto size_one_point = sock_->readValue<std::size_t>();
+            sock_->readData<char>(recv_buffer_);
 
-        send_buffer_.resize(num_points_ * push_size_one_point_);
-        recv_buffer_.resize(num_points_ * pull_size_one_point_);
+            assert(size_one_point == pull_size_one_point_);
+
+            send_buffer_.resize(num_points_ * push_size_one_point_);
+            recv_buffer_.resize(num_points_ * pull_size_one_point_);
+        }
+        else
+        {
+            std::cerr << "Unexpected status code! This is fatal." << std::endl;
+            exit(1);
+        }
     }
 
     bool getNextParticleData(double &r, double x[3], double v[3])
@@ -273,13 +287,15 @@ public:
 
     void sendData()
     {
+        num_points_ = sock_->readValue<std::size_t>();
+        const auto size_one_point = sock_->readValue<std::size_t>();
         sock_->writeData(send_buffer_);
         iPart_send = 0;
     }
 
     double getDEMts() const { return demTS; }
     int getNumCG() const { return static_cast<int>(cg.size()); }
-    double const * const getCG() const { return cg.data(); }
+    const std::vector<double> getCG() const { return cg; }
     std::size_t getNumParticles() const { return num_points_; }
 
 private:
@@ -313,8 +329,10 @@ private:
         {
         case PropertyType::SCALAR_ATOM:
             data_length = 1;
+            break;
         case PropertyType::VECTOR_ATOM:
             data_length = 3;
+            break;
         }
         return {data_type, data_length, object};
     }
