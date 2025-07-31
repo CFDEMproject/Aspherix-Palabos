@@ -17,6 +17,10 @@ function cleanup ()
 #    kill -15 $CFDPID
 }
 
+# make sure directory for results exists and is empty
+rm -rf logtmp
+mkdir logtmp
+
 # start DEM separately
 bash DEMrun.sh &
 DEMPID=$!
