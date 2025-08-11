@@ -233,6 +233,7 @@ public:
             std::cerr << "Unexpected status code! This is fatal." << std::endl;
             exit(1);
         }
+        nPart = num_points_;
     }
 
     bool getNextParticleData(double &r, double x[3], double v[3])
