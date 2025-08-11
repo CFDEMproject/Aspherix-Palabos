@@ -26,7 +26,6 @@ public:
           demTS(0.),
           cfd_viscosity(_cfd_viscosity),
           cfd_density(_cfd_density),
-          nPart(0),
           iPart_send(0),
           iPart_rcv(0),
           firstStep(true)
@@ -233,12 +232,12 @@ public:
             std::cerr << "Unexpected status code! This is fatal." << std::endl;
             exit(1);
         }
-        nPart = num_points_;
+        iPart_rcv = 0;
     }
 
     bool getNextParticleData(double &r, double x[3], double v[3])
     {
-        if(iPart_rcv >= nPart)
+        if(iPart_rcv >= num_points_)
             return false;
 
         for (const auto& field : fields_)
@@ -316,7 +315,7 @@ private:
     std::vector<char> recv_buffer_;
     std::vector<char> send_buffer_;
 
-    int nPart, iPart_send, iPart_rcv;
+    std::size_t iPart_send, iPart_rcv;
     bool firstStep;
 
     std::tuple<CoSimSocket::DataType, std::size_t, CoSimSocket::DataObject> propTypeToTuple(PropertyType const type) const
