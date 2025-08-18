@@ -78,16 +78,19 @@ public:
         using array3 = std::array<double, 3>;
         array3 gravity_DEM;
         int n_particle_templates = 0;
+        bool variable_cg = false;
 
         settings.clearSettings();
         settings.addSetting("DEMts", demTS, kRecv);
         settings.addSetting("gravity", gravity_DEM, kRecv);
         settings.addSetting("num_particle_templates", n_particle_templates, kRecv);
+        settings.addSetting("variable_cg", variable_cg, kRecv);
         settings.sync();
 
         demTS = settings.getSetting<double>("DEMts");
         gravity_DEM = settings.getSetting<array3>("gravity");
         n_particle_templates = settings.getSetting<int>("num_particle_templates");
+        variable_cg = settings.getSetting<bool>("variable_cg");
 
         // Send data to Aspherix (hardcoded for the moment)
         int couple_nevery = 1;
