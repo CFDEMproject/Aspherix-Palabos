@@ -21,7 +21,8 @@ public:
 
     AspherixSocketWrapper(int const nRank, bool const _hyperthreading,
                           double const _cfd_viscosity, double const _cfd_density)
-        : sock_(std::make_shared<CoSimSocket::AspherixCoSimSocket>(CoSimSocket::Mode::kClient, nRank)),
+        : sock_(std::make_shared<CoSimSocket::AspherixCoSimSocket>(
+            CoSimSocket::Mode::kClient, nRank, "", 49152, 1, 10, false, false)),
           hyperthreading(_hyperthreading),
           demTS(0.),
           cfd_viscosity(_cfd_viscosity),
