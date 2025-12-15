@@ -142,6 +142,16 @@ public:
             exit(1);
         }
 
+        // receive (pre-type) particle properties
+        std::vector<double> particle_rho;
+        std::vector<double> particle_Cp;
+        bool particle_Cp_valid = false;
+        settings.clearSettings();
+        settings.addSetting("particle_density", particle_rho, kRecv);
+        settings.addSetting("particle_Cp_valid", particle_Cp_valid, kRecv);
+        settings.addSetting("particle_Cp", particle_Cp, kRecv);
+        settings.sync();
+
         // Check for errors on DEM side
         SocketCodes code = sock_->exchangeStatus();
         if (code != SocketCodes::kStartExchange)
