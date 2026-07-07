@@ -58,7 +58,7 @@ public:
     {
         using namespace CoSimSocket;
 
-        const std::string commProtocolVersion_ = "HaikuCup";
+        const std::string commProtocolVersion_ = "fihTAZFa";
         auto settings = CoSimSettings(sock_);
         settings.addSetting("client_protocol_id", commProtocolVersion_, kSend);
         settings.sync();
