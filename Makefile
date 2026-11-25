@@ -39,7 +39,7 @@ srcPaths =
 # Path to external libraries (other than Palabos)
 libraryPaths = ${ASX_COSIM_DIR}/lib/
 # Path to inlude directories (other than Palabos)
-includePaths = ${ASX_COSIM_DIR}/include/aspherix_cosim_socket/
+includePaths = ${ASX_COSIM_DIR}/include/asx_cosim_socket/
 # Dynamic and static libraries (other than Palabos)
 libraries = libaspherix_cosim_socket.a
 
